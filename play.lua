@@ -60,9 +60,8 @@ function GetMusicUrl(music_id)
 end
 
 local chunk_size = 6000
-local bytes_read = 0
-
 function PlayMusic(url)
+    local bytes_read = 0
     print("")
     local function get_total_duration(url)
         if _G.Playprint then printlog("Calculating duration...") end
@@ -74,7 +73,6 @@ function PlayMusic(url)
         local data = handle.readAll()
         handle.close()
         
-        -- DFPWM: 每字节8个样本，48000采样率
         local total_length = (#data * 8) / 48000
         return total_length, #data
     end
