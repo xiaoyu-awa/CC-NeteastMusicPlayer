@@ -2,7 +2,7 @@ local NeteastMusicApi = "http://music168.liulikeji.cn:15843/"
 local TransApi = "http://newgmapi.liulikeji.cn/api/ffmpeg"
 
 
-local feature = {"id","lid"} --1=id 2=lid
+local feature = {"id","lid","dfpwm"} --1=id 2=lid 3=dfpwm
 local playMode = {"once","cycle"} --1=once 2=cycle
 
 local mode
@@ -11,9 +11,9 @@ local play = false
 
 --init vars
 if arg[1]==nil then
-    print("play [id/lid] [id] {once/cycle}")
+    print("play [id/lid/dfpwm] [id] {once/cycle}")
     print(" id/uid: select musicid or playlist id")
-    print(" id: the id of music or playlist")
+    print(" id: the id of music or playlist | filename when using dfpwm mode")
     print(" once/cycle: play mode(default:once)")
 end
 
@@ -157,6 +157,30 @@ elseif mode==2 then
             print("playing id: "..value)
             local url =GetMusicUrl(value)
             PlayMusic(url)
+        end
+        print("play completely")
+    end
+elseif mode==3 then
+    if play then
+        print("play dfpwm in loop mode")
+        local count = 1
+        while play do
+            print("play count:"..tostring(count))
+            for chunk in io.lines(id, 16 * 1024) do
+                local buffer = decoder(chunk)
+                while not speaker.playAudio(buffer) do
+                    os.pullEvent("speaker_audio_empty")
+                end
+            end
+            count = count+1
+        end
+    else
+        print("play dfpwm once")
+        for chunk in io.lines(id, 16 * 1024) do
+            local buffer = decoder(chunk)
+            while not speaker.playAudio(buffer) do
+                os.pullEvent("speaker_audio_empty")
+            end
         end
         print("play completely")
     end
