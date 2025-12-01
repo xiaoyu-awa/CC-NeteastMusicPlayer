@@ -225,9 +225,11 @@ local event = function ()
                     bytes_read=total_size
                     speaker.stop()
                 elseif x<termSizeX-5 and x>termSizeX-9 then
-                    i=i-2
-                    bytes_read=total_size
-                    speaker.stop()
+                    if i>1 then
+                        i=i-2
+                        bytes_read=total_size
+                        speaker.stop()
+                    end
                 end
             end
         end
