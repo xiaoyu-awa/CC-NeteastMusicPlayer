@@ -64,10 +64,9 @@ end
 
 local chunk_size = 6000
 local bytes_read = 0
-local total_length, total_size
+local total_length, total_size =0,0
 function PlayMusic(url)
     bytes_read = 0
-    print("")
     local function get_total_duration(url)
         local handle, err = http.get(url)
         if not handle then
@@ -103,10 +102,6 @@ function PlayMusic(url)
             end
         end
         bytes_read = bytes_read+chunk_size
-        
-        local posx,posy = term.getCursorPos()
-        term.setCursorPos(1, posy-1)
-        print(("Playing: %ds / %ds"):format(math.floor(bytes_read / 6000), math.ceil(total_length)))
     end
 end
 
@@ -124,6 +119,7 @@ local playMusic = function ()
             end
         else
             print("play music once")
+            print("music id:"..id)
             PlayMusic(url)
             print("play completely")
         end
@@ -145,6 +141,7 @@ local playMusic = function ()
             print("play list in loop mode")
             local count = 1
             while play do
+                i=1
                 print("loop count:"..tostring(count))
                 while not (i>#idList) do
                     local mid = idList[i]
@@ -156,7 +153,7 @@ local playMusic = function ()
                 count = count+1
             end
         else
-            print("play music lists once")
+            print("play music list once")
             while not (i>#idList) do
                 local mid = idList[i]
                 print("playing id: "..mid.." ("..i.."/"..#idList..")")
@@ -193,39 +190,57 @@ local playMusic = function ()
     end
 end
 
-local showButton = function ()
+local showControl = function ()
     while true do
-        if mode==2 and bytes_read>1 then
-            local x,y = term.getCursorPos()
-            term.setCursorPos(termSizeX-9,y-4)
-            print("         ")
-            term.setCursorPos(termSizeX-9,y-2)
-            print("| < | > |")
-            term.setCursorPos(x,y)
+        if bytes_read>1 then
+            local posx,posy = term.getCursorPos()
+            term.setCursorPos(1, termSizeY)
+            write("            ")
+            term.setCursorPos(1, termSizeY)
+            write(("%ds / %ds"):format(math.floor(bytes_read / 6000), math.ceil(total_length)))
+            if mode==2 then
+                local x,y = term.getCursorPos()
+                term.setCursorPos(termSizeX-8,termSizeY-2)
+                write("         ")
+                term.setCursorPos(termSizeX-8,termSizeY-1)
+                write("         ")
+                term.setCursorPos(termSizeX-8,termSizeY)
+                write("| < | > |")
+            end
+            if posy>termSizeY-3 then
+                term.scroll(4)
+                term.setCursorPos(posx, termSizeY-4)
+                term.clearLine()
+                term.setCursorPos(posx, posy-4)
+            else
+                term.setCursorPos(posx, posy)
+            end
             sleep(1)
+        else
+            sleep(0.05)
         end
     end
 end
 
 local event = function ()
     while true do
-
         if mode==2 then
             local event, button, x, y = os.pullEvent("mouse_click")
-            local curX,curY = term.getCursorPos()
             
-            if y==curY-2 then
+            if y==termSizeY then
                 if x<termSizeX and x>termSizeX-4 then
                     bytes_read=total_size
-                elseif x<termSizeX-5 and x>termSizeX-9 then
+                elseif x<termSizeX-4 and x>termSizeX-8 then
                     if i>1 then
                         i=i-2
                         bytes_read=total_size
                     end
                 end
             end
+        else
+            sleep(0.05)
         end
     end
 end
 
-parallel.waitForAny(event, playMusic, showButton)
+parallel.waitForAny(event, playMusic, showControl)
