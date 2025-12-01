@@ -9,6 +9,7 @@ local mode
 local id
 local play = false
 
+shell.run("clear")
 --init vars
 if arg[1]==nil then
     print("play [id/lid/dfpwm] [id] {once/cycle}")
@@ -68,7 +69,6 @@ function PlayMusic(url)
     bytes_read = 0
     print("")
     local function get_total_duration(url)
-        if _G.Playprint then printlog("Calculating duration...") end
         local handle, err = http.get(url)
         if not handle then
             error("Could not get duration: " .. (err or "Unknown error"))
@@ -197,14 +197,17 @@ local showButton = function ()
     while true do
         if mode==2 then
             local x,y = term.getCursorPos()
+            term.setCursorPos(termSizeX-9,y-6)
+            print("         ")
+            term.setCursorPos(termSizeX-9,y-5)
+            print("         ")
             term.setCursorPos(termSizeX-9,y-4)
             print("         ")
             term.setCursorPos(termSizeX-9,y-3)
             print("         ")
             term.setCursorPos(termSizeX-9,y-2)
-            print("         ")
-            term.setCursorPos(termSizeX-9,y-1)
             print("| < | > |")
+            term.setCursorPos(x,y)
             sleep(1)
         end
     end
@@ -217,12 +220,14 @@ local event = function ()
             local event, button, x, y = os.pullEvent("mouse_click")
             local curX,curY = term.getCursorPos()
             
-            if y==curY-1 then
+            if y==curY-2 then
                 if x<termSizeX and x>termSizeX-4 then
                     bytes_read=total_size
+                    speaker.stop()
                 elseif x<termSizeX-5 and x>termSizeX-9 then
                     i=i-2
                     bytes_read=total_size
+                    speaker.stop()
                 end
             end
         end
