@@ -195,7 +195,7 @@ end
 
 local showButton = function ()
     while true do
-        if mode==2 then
+        if mode==2 and bytes_read>1 then
             local x,y = term.getCursorPos()
             term.setCursorPos(termSizeX-9,y-6)
             print("         ")
