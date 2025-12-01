@@ -197,13 +197,7 @@ local showButton = function ()
     while true do
         if mode==2 and bytes_read>1 then
             local x,y = term.getCursorPos()
-            term.setCursorPos(termSizeX-9,y-6)
-            print("         ")
-            term.setCursorPos(termSizeX-9,y-5)
-            print("         ")
             term.setCursorPos(termSizeX-9,y-4)
-            print("         ")
-            term.setCursorPos(termSizeX-9,y-3)
             print("         ")
             term.setCursorPos(termSizeX-9,y-2)
             print("| < | > |")
@@ -223,12 +217,10 @@ local event = function ()
             if y==curY-2 then
                 if x<termSizeX and x>termSizeX-4 then
                     bytes_read=total_size
-                    speaker.stop()
                 elseif x<termSizeX-5 and x>termSizeX-9 then
                     if i>1 then
                         i=i-2
                         bytes_read=total_size
-                        speaker.stop()
                     end
                 end
             end
