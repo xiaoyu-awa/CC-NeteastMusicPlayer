@@ -35,6 +35,7 @@ if mode==nil then
     return
 end
 
+local i = 1 --歌单模式切歌用
 local termSizeX, termSizeY = term.getSize()
 local dfpwm = require("cc.audio.dfpwm")
 local speaker = peripheral.find("speaker")
@@ -61,8 +62,10 @@ function GetMusicUrl(music_id)
 end
 
 local chunk_size = 6000
+local bytes_read = 0
+local total_length, total_size
 function PlayMusic(url)
-    local bytes_read = 0
+    bytes_read = 0
     print("")
     local function get_total_duration(url)
         if _G.Playprint then printlog("Calculating duration...") end
@@ -74,13 +77,11 @@ function PlayMusic(url)
         local data = handle.readAll()
         handle.close()
         
-        local total_length = (#data * 8) / 48000
-        return total_length, #data
+        local totalLength = (#data * 8) / 48000
+        return totalLength, #data
     end
 
 
-
-    local total_length, total_size
     if url then
         total_length, total_size = get_total_duration(url)
     end
@@ -145,25 +146,23 @@ local playMusic = function ()
             local count = 1
             while play do
                 print("loop count:"..tostring(count))
-                for index, value in pairs(idList) do
-                    print("playing id: "..value.." ("..index.."/"..#idList..")")
-                    local x,y = term.getCursorPos()
-                    term.setCursorPos(termSizeX-9, y-3)
-                    term.write("         ")
-                    term.setCursorPos(termSizeX-9, y-1)
-                    print("| < | > |")
-
-                    local url =GetMusicUrl(value)
+                while not (i>#idList) do
+                    local mid = idList[i]
+                    print("playing id: "..mid.." ("..i.."/"..#idList..")")
+                    local url =GetMusicUrl(mid)
                     PlayMusic(url)
+                    i=i+1
                 end
                 count = count+1
             end
         else
             print("play music lists once")
-            for index, value in pairs(idList) do
-                print("playing id: "..value.." ("..index.."/"..#idList..")")
-                local url =GetMusicUrl(value)
+            while not (i>#idList) do
+                local mid = idList[i]
+                print("playing id: "..mid.." ("..i.."/"..#idList..")")
+                local url =GetMusicUrl(mid)
                 PlayMusic(url)
+                i=i+1
             end
             print("play completely")
         end
@@ -194,14 +193,40 @@ local playMusic = function ()
     end
 end
 
-local event = function ()
+local showButton = function ()
     while true do
         if mode==2 then
-            local event, button, x, y = os.pullEvent("mouse_click")
-
-            
+            local x,y = term.getCursorPos()
+            term.setCursorPos(termSizeX-9,y-4)
+            print("         ")
+            term.setCursorPos(termSizeX-9,y-3)
+            print("         ")
+            term.setCursorPos(termSizeX-9,y-2)
+            print("         ")
+            term.setCursorPos(termSizeX-9,y-1)
+            print("| < | > |")
+            sleep(1)
         end
     end
 end
 
-parallel.waitForAny(event, playMusic)
+local event = function ()
+    while true do
+
+        if mode==2 then
+            local event, button, x, y = os.pullEvent("mouse_click")
+            local curX,curY = term.getCursorPos()
+            
+            if y==curY-1 then
+                if x<termSizeX and x>termSizeX-4 then
+                    bytes_read=total_size
+                elseif x<termSizeX-5 and x>termSizeX-9 then
+                    i=i-2
+                    bytes_read=total_size
+                end
+            end
+        end
+    end
+end
+
+parallel.waitForAny(event, playMusic, showButton)
