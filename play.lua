@@ -35,6 +35,7 @@ if mode==nil then
     return
 end
 
+local termSizeX, termSizeY = term.getSize()
 local dfpwm = require("cc.audio.dfpwm")
 local speaker = peripheral.find("speaker")
 local decoder = dfpwm.make_decoder()
@@ -108,80 +109,99 @@ function PlayMusic(url)
     end
 end
 
+local playMusic = function ()
+    if mode==1 then
+        local url =GetMusicUrl(id)
 
-if mode==1 then
-    local url =GetMusicUrl(id)
-
-    if play then
-        print("play in loop mode")
-        local count = 1
-        while play do
-            print("play count:"..tostring(count))
+        if play then
+            print("play in loop mode")
+            local count = 1
+            while play do
+                print("loop count:"..tostring(count))
+                PlayMusic(url)
+                count = count+1
+            end
+        else
+            print("play music once")
             PlayMusic(url)
-            count = count+1
+            print("play completely")
         end
-    else
-        print("play music once")
-        PlayMusic(url)
-        print("play completely")
-    end
-    
+        
 
-elseif mode==2 then
-    local listid="/api/playlist/detail?s=0&id="..id
-    local data = http.get(NeteastMusicApi..listid).readAll()
-    local musicList = textutils.unserialiseJSON(data)
-    local List=musicList["playlist"]["tracks"]
+    elseif mode==2 then
+        local listid="/api/playlist/detail?s=0&id="..id
+        local data = http.get(NeteastMusicApi..listid).readAll()
+        local musicList = textutils.unserialiseJSON(data)
+        local List=musicList["playlist"]["tracks"]
 
-    local idList = {}
-    for index, value in pairs(List) do
-        idList[#idList + 1] = value["id"]
-    end
+        local idList = {}
+        for index, value in pairs(List) do
+            idList[#idList + 1] = value["id"]
+        end
 
 
-    if play then
-        print("play list in loop mode")
-        local count = 1
-        while play do
-            print("play count:"..tostring(count))
+        if play then
+            print("play list in loop mode")
+            local count = 1
+            while play do
+                print("loop count:"..tostring(count))
+                for index, value in pairs(idList) do
+                    print("playing id: "..value.." ("..index.."/"..#idList..")")
+                    local x,y = term.getCursorPos()
+                    term.setCursorPos(termSizeX-9, y-3)
+                    term.write("         ")
+                    term.setCursorPos(termSizeX-9, y-1)
+                    print("| < | > |")
+
+                    local url =GetMusicUrl(value)
+                    PlayMusic(url)
+                end
+                count = count+1
+            end
+        else
+            print("play music lists once")
             for index, value in pairs(idList) do
-                print("playing id: "..value)
+                print("playing id: "..value.." ("..index.."/"..#idList..")")
                 local url =GetMusicUrl(value)
                 PlayMusic(url)
             end
-            count = count+1
+            print("play completely")
         end
-    else
-        print("play music lists once")
-        for index, value in pairs(idList) do
-            print("playing id: "..value)
-            local url =GetMusicUrl(value)
-            PlayMusic(url)
-        end
-        print("play completely")
-    end
-elseif mode==3 then
-    if play then
-        print("play dfpwm in loop mode")
-        local count = 1
-        while play do
-            print("play count:"..tostring(count))
+    elseif mode==3 then
+        if play then
+            print("play dfpwm in loop mode")
+            local count = 1
+            while play do
+                print("loop count:"..tostring(count))
+                for chunk in io.lines(id, 16 * 1024) do
+                    local buffer = decoder(chunk)
+                    while not speaker.playAudio(buffer) do
+                        os.pullEvent("speaker_audio_empty")
+                    end
+                end
+                count = count+1
+            end
+        else
+            print("play dfpwm once")
             for chunk in io.lines(id, 16 * 1024) do
                 local buffer = decoder(chunk)
                 while not speaker.playAudio(buffer) do
                     os.pullEvent("speaker_audio_empty")
                 end
             end
-            count = count+1
+            print("play completely")
         end
-    else
-        print("play dfpwm once")
-        for chunk in io.lines(id, 16 * 1024) do
-            local buffer = decoder(chunk)
-            while not speaker.playAudio(buffer) do
-                os.pullEvent("speaker_audio_empty")
-            end
-        end
-        print("play completely")
     end
 end
+
+local event = function ()
+    while true do
+        if mode==2 then
+            local event, button, x, y = os.pullEvent("mouse_click")
+
+            
+        end
+    end
+end
+
+parallel.waitForAny(event, playMusic)
