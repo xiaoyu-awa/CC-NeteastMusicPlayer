@@ -1,4 +1,4 @@
-local NeteastMusicApi = "http://music168.liulikeji.cn:15843/"
+local NeteastMusicApi = "http://music168.liulikeji.cn/"
 local TransApi = "http://newgmapi.liulikeji.cn/api/ffmpeg"
 
 
