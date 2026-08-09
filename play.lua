@@ -1,4 +1,4 @@
-local NeteastMusicApi = "http://music168.liulikeji.cn/"
+local NeteastMusicApi = "http://frp-fly.com:12856"
 local TransApi = "http://newgmapi.liulikeji.cn/api/ffmpeg"
 
 
@@ -45,7 +45,7 @@ local decoder = dfpwm.make_decoder()
 
 
 function GetMusicUrl(music_id)
-    local getMusic="/api/song/url?id="..music_id
+    local getMusic="/song/url?id="..music_id
 
     local data = http.get(NeteastMusicApi..getMusic).readAll()
     local music_get = textutils.unserialiseJSON(data)
@@ -126,7 +126,7 @@ local playMusic = function ()
         
 
     elseif mode==2 then
-        local listid="/api/playlist/detail?s=0&id="..id
+        local listid="/playlist/detail?s=0&id="..id
         local data = http.get(NeteastMusicApi..listid).readAll()
         local musicList = textutils.unserialiseJSON(data)
         local List=musicList["playlist"]["tracks"]
