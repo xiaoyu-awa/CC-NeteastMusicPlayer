@@ -59,6 +59,7 @@ end
 
 -- Border box
 local function DrawBorder(x, y, w, h, fg)
+    if w < 2 or h < 2 then return end
     term.setTextColor(fg)
     term.setBackgroundColor(colors.black)
     term.setCursorPos(x, y)
@@ -73,22 +74,24 @@ local function DrawBorder(x, y, w, h, fg)
     term.write(string.char(138) .. string.rep(string.char(131), w - 2) .. string.char(133))
 end
 
--- Button (returns rect for hit test)
+-- Button (compact, returns rect for hit test)
 local function DrawButton(x, y, w, h, label, active)
     local bg = active and colors.lime or colors.gray
     local fg = colors.black
     DrawRect(x, y, w, h, bg)
     term.setTextColor(fg)
     term.setBackgroundColor(bg)
-    local lx = x + math.floor((w - #label) / 2)
+    local ll = #label
+    local lx = x + math.max(0, math.floor((w - ll) / 2))
     local ly = y + math.floor(h / 2)
     term.setCursorPos(lx, ly)
-    term.write(label)
+    if ll > w then ll = w end
+    term.write(label:sub(1, ll))
     DrawBorder(x, y, w, h, colors.lightGray)
     return {x = x, y = y, w = w, h = h}
 end
 
--- Labeled input box
+-- Labeled input box (compact)
 local function DrawInput(x, y, w, label, value, focused, placeholder)
     term.setBackgroundColor(colors.black)
     term.setTextColor(colors.cyan)
@@ -101,23 +104,24 @@ local function DrawInput(x, y, w, label, value, focused, placeholder)
     term.setBackgroundColor(bg)
     term.setTextColor(fg)
     term.setCursorPos(x + 1, y + 2)
+    local maxIn = math.max(1, w - 2)
     if #value == 0 and placeholder then
         term.setTextColor(colors.lightGray)
-        term.write(placeholder:sub(1, w - 2))
+        term.write(placeholder:sub(1, maxIn))
     else
         local display = value
-        if #display > w - 2 then
-            display = display:sub(#display - (w - 3), -1)
+        if #display > maxIn then
+            display = display:sub(#display - maxIn + 1, -1)
         end
         term.write(display)
         if focused then
             term.setTextColor(colors.red)
-            term.write("_")
+            if #display < maxIn then term.write("_") end
         end
     end
 end
 
--- Checkbox
+-- Checkbox (short label)
 local function DrawCheckbox(x, y, label, checked)
     term.setBackgroundColor(colors.black)
     term.setTextColor(colors.white)
@@ -140,13 +144,14 @@ local function DrawProgressBar(x, y, w, percent)
     term.setBackgroundColor(colors.black)
 end
 
--- Page title bar
+-- Page title bar (compact, 1 line instead of 2)
 local function DrawTitle(text)
-    DrawRect(1, 1, termSizeX, 2, colors.blue)
+    DrawRect(1, 1, termSizeX, 1, colors.blue)
     term.setBackgroundColor(colors.blue)
     term.setTextColor(colors.yellow)
-    term.setCursorPos(math.max(1, math.floor((termSizeX - #text) / 2)), 2)
-    term.write(text:sub(1, termSizeX))
+    local t = text:sub(1, termSizeX)
+    term.setCursorPos(math.max(1, math.floor((termSizeX - #t) / 2)), 1)
+    term.write(t)
 end
 
 --[[==================  Business helpers  ==================]]
@@ -186,7 +191,6 @@ function GetSongName(music_id)
     if detail and detail.songs and detail.songs[1] then
         local n = detail.songs[1].name
         if n and type(n) == "string" and #n > 0 then
-            -- Strip non-ASCII chars so CC terminal doesn't render garbage
             local stripped = n:gsub("[^\32-\126]", "?")
             if #stripped > 0 then return stripped end
         end
@@ -201,7 +205,7 @@ local function PlayMusicCore(url)
     local function get_total_duration(u)
         local handle, err = http.get(u)
         if not handle then
-            error("Could not get duration: " .. (err or "Unknown error"))
+            error("No duration: " .. (err or "?"))
         end
         local d = handle.readAll()
         handle.close()
@@ -238,7 +242,7 @@ local function PlayMusicCore(url)
     if file then file.close() end
 end
 
--- Actual playback flow dispatcher
+-- Actual playback flow dispatcher (compact log strings)
 local function PlayFlow()
     bytes_read = 0
     total_length = 0
@@ -247,20 +251,20 @@ local function PlayFlow()
 
     if gui_mode == 1 then  -- Single track
         local mid = (mode == 1 and id) or gui_input_id
-        GuiLog("Fetching track: " .. mid)
+        GuiLog("Get: " .. mid)
         gui_current_song_name = GetSongName(mid)
         local url = GetMusicUrl(mid)
         local count = 1
         repeat
-            GuiLog("Play #" .. count .. ": " .. gui_current_song_name)
+            GuiLog("#" .. count .. " " .. gui_current_song_name)
             PlayMusicCore(url)
             count = count + 1
         until (not gui_loop) or gui_play_stopped
-        GuiLog(gui_play_stopped and "Stopped by user" or "Playback finished")
+        GuiLog(gui_play_stopped and "Stopped" or "Done")
 
     elseif gui_mode == 2 then  -- Playlist
         local pid = (mode == 2 and id) or gui_input_id
-        GuiLog("Loading playlist: " .. pid)
+        GuiLog("List: " .. pid)
         local data = http.get(NeteastMusicApi .. "/playlist/detail?s=0&id=" .. pid).readAll()
         local musicList = textutils.unserialiseJSON(data)
         local List = musicList["playlist"]["tracks"]
@@ -268,7 +272,7 @@ local function PlayFlow()
         for index, value in pairs(List) do
             idList[#idList + 1] = value["id"]
         end
-        GuiLog(tostring(#idList) .. " tracks" .. (gui_shuffle and " (shuffle)" or ""))
+        GuiLog(tostring(#idList) .. " trk" .. (gui_shuffle and " RND" or ""))
 
         local startIdx = tonumber(gui_input_start) or 1
         local loopCount = 1
@@ -276,30 +280,30 @@ local function PlayFlow()
             if gui_shuffle then ShuffleArray(idList) end
             i = math.max(1, math.min(startIdx, #idList))
             startIdx = 1
-            GuiLog("Loop " .. loopCount .. ", starting at #" .. i)
+            GuiLog("Lp" .. loopCount .. " @" .. "#" .. i)
             while not (i > #idList) and not gui_play_stopped do
                 local mid = idList[i]
                 gui_current_song_name = GetSongName(mid)
-                GuiLog(string.format("[%d/%d] %s", i, #idList, gui_current_song_name))
+                GuiLog("[" .. i .. "/" .. #idList .. "] " .. gui_current_song_name)
                 local ok, url = pcall(GetMusicUrl, mid)
                 if ok and url then
                     PlayMusicCore(url)
                 else
-                    GuiLog("Fetch failed, skipped")
+                    GuiLog("Skip: err")
                 end
                 i = i + 1
             end
             loopCount = loopCount + 1
         until (not gui_loop) or gui_play_stopped
-        GuiLog(gui_play_stopped and "Stopped by user" or "Playback finished")
+        GuiLog(gui_play_stopped and "Stopped" or "Done")
 
     elseif gui_mode == 3 then  -- Local DFPWM file
         local fn = (mode == 3 and id) or gui_input_id
-        GuiLog("Local file: " .. fn)
+        GuiLog("File: " .. fn)
         gui_current_song_name = fn
         local loopCount = 1
         repeat
-            GuiLog("Play #" .. loopCount)
+            GuiLog("#" .. loopCount)
             bytes_read = 0
             local f = io.open(fn, "rb")
             if f then
@@ -322,77 +326,99 @@ local function PlayFlow()
                     end
                 end
             else
-                GuiLog("Cannot open file")
+                GuiLog("File ERR")
                 sleep(1)
                 break
             end
             loopCount = loopCount + 1
         until (not gui_loop) or gui_play_stopped
-        GuiLog(gui_play_stopped and "Stopped by user" or "Playback finished")
+        GuiLog(gui_play_stopped and "Stopped" or "Done")
     end
 end
 
---[[==================  Page renderers  ==================]]
+--[[==================  Page renderers (COMPACT for 26x20 pocket)  ==================]]
 
 local function RenderMenu()
     term.clear()
     term.setBackgroundColor(colors.black)
-    DrawTitle(" ~ Netease Music Player ~ ")
+    DrawTitle("<< Netease Player >>")
     term.setTextColor(colors.white)
     term.setBackgroundColor(colors.black)
-    term.setCursorPos(2, 4)
-    term.write("Select playback mode:")
-    local bw = termSizeX - 8
-    DrawButton(4, 6, bw, 3, "[1] Single Track (by ID)", false)
-    DrawButton(4, 10, bw, 3, "[2] Playlist (by ID)", false)
-    DrawButton(4, 14, bw, 3, "[3] Local DFPWM File", false)
+    term.setCursorPos(2, 3)
+    term.write("Pick mode:")
+    local bw = termSizeX - 4
+    DrawButton(2, 4, bw, 3, "1 Single", false)
+    DrawButton(2, 8, bw, 3, "2 Playlist", false)
+    DrawButton(2, 12, bw, 3, "3 Local DFPWM", false)
     term.setCursorPos(2, termSizeY - 1)
     term.setTextColor(colors.lightGray)
-    term.write("Click a button or press 1 / 2 / 3")
+    term.write("Click or 1/2/3")
     term.setCursorPos(2, termSizeY)
-    term.write("CLI: play id <id> cycle shuffle")
+    term.write("CLI: play id <id>")
 end
 
 local function RenderInput()
     term.clear()
-    local sub = gui_mode == 1 and "Single" or gui_mode == 2 and "Playlist" or "LocalDFPWM"
-    DrawTitle(" Parameters - " .. sub)
-    local ph = gui_mode == 3 and "e.g. music.dfpwm" or "e.g. 33894312"
-    DrawInput(3, 4, termSizeX - 6, "ID / File path:", gui_input_id, gui_focus == "id", ph)
+    local sub = gui_mode == 1 and "Single" or gui_mode == 2 and "List" or "File"
+    DrawTitle("Setup: " .. sub)
+
+    -- ID input: box takes most width
+    local boxW = termSizeX - 4
+    DrawInput(2, 3, boxW, "ID/Path:", gui_input_id, gui_focus == "id",
+              gui_mode == 3 and "song.dfpwm" or "33894312")
+
+    -- Start index: only for playlist, compact inline
+    local cy = 7
     if gui_mode == 2 then
-        DrawInput(3, 8, 10, "Start index:", gui_input_start, gui_focus == "start", "1")
+        DrawInput(2, 7, 8, "Start #:", gui_input_start, gui_focus == "start", "1")
+        cy = 11
     end
-    local cy = gui_mode == 2 and 13 or 9
-    DrawCheckbox(3, cy, "Loop playback", gui_loop)
-    DrawCheckbox(3, cy + 1, "Shuffle (playlist only)", gui_shuffle)
-    local bw = math.floor((termSizeX - 8) / 2)
-    DrawButton(3, termSizeY - 4, bw, 3, "[B] Back", false)
-    DrawButton(5 + bw, termSizeY - 4, bw, 3, "[ENTER] Start", true)
+
+    DrawCheckbox(2, cy, "Loop", gui_loop)
+    DrawCheckbox(2, cy + 1, "Shuffle", gui_shuffle)
+
+    -- Two buttons at bottom
+    local bw = math.floor((termSizeX - 4) / 2)
+    local by = termSizeY - 3
+    DrawButton(2, by, bw, 3, "B Back", false)
+    DrawButton(3 + bw, by, bw, 3, "E Play", true)
+
+    -- Hint at very bottom, 1 line
     term.setBackgroundColor(colors.black)
     term.setTextColor(colors.lightGray)
     term.setCursorPos(2, termSizeY)
-    term.write("Tab:switch input Space:toggle Enter:confirm")
+    term.write("Tab=sw Spc=ok Ent=go")
 end
 
 local function RenderPlay()
     term.clear()
+    -- Title with flags: L=Loop S=Shuffle
     local flags = ""
-    if gui_loop then flags = flags .. "[LOOP] " end
-    if gui_shuffle then flags = flags .. "[SHUFFLE]" end
-    DrawTitle(" NOW PLAYING  " .. flags)
+    if gui_loop then flags = flags .. "L" end
+    if gui_shuffle then flags = flags .. "S" end
+    local title = "PLAY"
+    if #flags > 0 then title = title .. " [" .. flags .. "]" end
+    DrawTitle(title)
 
+    -- Song name (short): line 2
     term.setBackgroundColor(colors.black)
     term.setTextColor(colors.yellow)
-    term.setCursorPos(2, 4)
+    term.setCursorPos(1, 2)
+    term.clearLine()
     local name = gui_current_song_name
-    if #name > termSizeX - 4 then name = name:sub(1, termSizeX - 7) .. "..." end
+    if #name > termSizeX then name = name:sub(1, termSizeX - 3) .. "..." end
+    term.setCursorPos(math.max(1, math.floor((termSizeX - #name) / 2)), 2)
     term.write(name)
 
+    -- Progress bar: line 3
+    local pw = termSizeX - 2
     local percent = 0
     if total_size and total_size > 0 then
         percent = bytes_read / total_size
     end
-    DrawProgressBar(2, 6, termSizeX - 3, percent)
+    DrawProgressBar(1, 3, pw, percent)
+
+    -- Time text: line 4 (short format)
     term.setTextColor(colors.white)
     term.setBackgroundColor(colors.black)
     local cur = 0
@@ -400,35 +426,46 @@ local function RenderPlay()
     if total_size and total_size > 0 then
         cur = (bytes_read * 8) / 48000
     end
-    term.setCursorPos(2, 7)
-    term.write(string.format("%ds / %ds   %d%%",
-        math.floor(cur), math.ceil(tot), math.floor(percent * 100)))
+    term.setCursorPos(1, 4)
+    term.clearLine()
+    local timeStr = tostring(math.floor(cur)) .. "s/" .. tostring(math.ceil(tot)) .. "s "
+    local pctStr = tostring(math.floor(percent * 100)) .. "%"
+    local info = timeStr .. pctStr
+    term.setCursorPos(math.max(1, math.floor((termSizeX - #info) / 2)), 4)
+    term.write(info)
 
-    local bw = math.floor((termSizeX - 8) / 3)
+    -- Control buttons: line 5-7 (h=3)
     if gui_mode == 2 then
-        DrawButton(2, 9, bw, 3, "[<] Prev", false)
-        DrawButton(3 + bw, 9, bw, 3, "[X] Stop", true)
-        DrawButton(4 + 2 * bw, 9, bw, 3, "[>] Next", false)
+        -- 3 equal buttons
+        local gap = 1
+        local totalW = termSizeX - 2
+        local bw = math.floor((totalW - 2 * gap) / 3)
+        DrawButton(1, 5, bw, 3, "<Prev", false)
+        DrawButton(1 + bw + gap, 5, bw, 3, "Stop", true)
+        DrawButton(1 + 2 * (bw + gap), 5, bw, 3, "Next>", false)
     else
-        local stopW = termSizeX - 10
-        DrawButton(5, 9, stopW, 3, "[X] Stop & Return", true)
+        DrawButton(1, 5, termSizeX, 3, "STOP (X)", true)
     end
 
-    local logY = 12
-    local logH = termSizeY - logY - 1
-    DrawRect(2, logY - 1, termSizeX - 3, 1, colors.gray)
-    term.setTextColor(colors.white)
+    -- Log header + log region: starts line 9 to end (termSizeY line reserved)
+    local logY = 9
+    local logH = termSizeY - logY
+    if logH < 2 then logH = 2 end
+    -- Log header (tiny)
+    DrawRect(1, logY - 1, termSizeX, 1, colors.gray)
     term.setBackgroundColor(colors.gray)
-    term.setCursorPos(2, logY - 1)
-    term.write(" Playback Log ")
+    term.setTextColor(colors.white)
+    term.setCursorPos(1, logY - 1)
+    term.write(" Log")
+    -- Log lines (truncate heavily)
     term.setBackgroundColor(colors.black)
     term.setTextColor(colors.lightGray)
     for idx = 1, logH do
-        term.setCursorPos(2, logY + idx - 1)
+        term.setCursorPos(1, logY + idx - 1)
         term.clearLine()
         local line = gui_log[#gui_log - (logH - idx)]
         if line then
-            if #line > termSizeX - 4 then line = line:sub(1, termSizeX - 7) .. "..." end
+            if #line > termSizeX then line = line:sub(1, termSizeX - 3) .. ".." end
             term.write(line)
         end
     end
@@ -437,59 +474,55 @@ end
 --[[==================  Event dispatchers  ==================]]
 
 local function HandleMenuClick(x, y)
-    local bw = termSizeX - 8
-    if PointInRect(x, y, 4, 6, bw, 3) then
-        gui_mode = 1
-        gui_input_id = ""
-        gui_input_start = "1"
-        PAGE = "INPUT"
-    elseif PointInRect(x, y, 4, 10, bw, 3) then
-        gui_mode = 2
-        gui_input_id = ""
-        gui_input_start = "1"
-        PAGE = "INPUT"
-    elseif PointInRect(x, y, 4, 14, bw, 3) then
-        gui_mode = 3
-        gui_input_id = ""
-        PAGE = "INPUT"
+    local bw = termSizeX - 4
+    if PointInRect(x, y, 2, 4, bw, 3) then
+        gui_mode = 1; gui_input_id = ""; gui_input_start = "1"; PAGE = "INPUT"
+    elseif PointInRect(x, y, 2, 8, bw, 3) then
+        gui_mode = 2; gui_input_id = ""; gui_input_start = "1"; PAGE = "INPUT"
+    elseif PointInRect(x, y, 2, 12, bw, 3) then
+        gui_mode = 3; gui_input_id = ""; PAGE = "INPUT"
     end
 end
 
 local function HandleInputClick(x, y)
-    if PointInRect(x, y, 3, 5, termSizeX - 6, 3) then
+    local boxW = termSizeX - 4
+    if PointInRect(x, y, 2, 4, boxW, 3) then
         gui_focus = "id"
-    elseif gui_mode == 2 and PointInRect(x, y, 3, 9, 10, 3) then
+    elseif gui_mode == 2 and PointInRect(x, y, 2, 8, 8, 3) then
         gui_focus = "start"
     end
-    local cy = gui_mode == 2 and 13 or 9
-    if PointInRect(x, y, 3, cy, 16, 1) then
+    -- Checkboxes (y depends on mode)
+    local cy = gui_mode == 2 and 11 or 7
+    if y == cy and x >= 2 and x <= 10 then
         gui_loop = not gui_loop
-    end
-    if PointInRect(x, y, 3, cy + 1, 28, 1) then
+    elseif y == cy + 1 and x >= 2 and x <= 12 then
         gui_shuffle = not gui_shuffle
     end
-    local bw = math.floor((termSizeX - 8) / 2)
-    if PointInRect(x, y, 3, termSizeY - 4, bw, 3) then
+    -- Buttons at bottom
+    local bw = math.floor((termSizeX - 4) / 2)
+    local by = termSizeY - 3
+    if PointInRect(x, y, 2, by, bw, 3) then
         PAGE = "MENU"
-    elseif PointInRect(x, y, 5 + bw, termSizeY - 4, bw, 3) then
+    elseif PointInRect(x, y, 3 + bw, by, bw, 3) then
         StartFromGui()
     end
 end
 
 local function HandlePlayClick(x, y)
-    local bw = math.floor((termSizeX - 8) / 3)
     if gui_mode == 2 then
-        if PointInRect(x, y, 2, 9, bw, 3) then
+        local gap = 1
+        local totalW = termSizeX - 2
+        local bw = math.floor((totalW - 2 * gap) / 3)
+        if PointInRect(x, y, 1, 5, bw, 3) then
             if i > 1 then i = i - 2 end
             bytes_read = total_size
-        elseif PointInRect(x, y, 3 + bw, 9, bw, 3) then
+        elseif PointInRect(x, y, 1 + bw + gap, 5, bw, 3) then
             gui_play_stopped = true
-        elseif PointInRect(x, y, 4 + 2 * bw, 9, bw, 3) then
+        elseif PointInRect(x, y, 1 + 2 * (bw + gap), 5, bw, 3) then
             bytes_read = total_size
         end
     else
-        local stopW = termSizeX - 10
-        if PointInRect(x, y, 5, 9, stopW, 3) then
+        if PointInRect(x, y, 1, 5, termSizeX, 3) then
             gui_play_stopped = true
         end
     end
@@ -530,8 +563,7 @@ local function GuiMainLoop()
 
         if PAGE == "MENU" then
             if type == "mouse_click" then
-                HandleMenuClick(ev[3], ev[4])
-                dirty = true
+                HandleMenuClick(ev[3], ev[4]); dirty = true
             elseif type == "char" then
                 local c = ev[2]
                 if c == "1" then gui_mode = 1; PAGE = "INPUT"; dirty = true
@@ -544,29 +576,23 @@ local function GuiMainLoop()
 
         elseif PAGE == "INPUT" then
             if type == "mouse_click" then
-                HandleInputClick(ev[3], ev[4])
-                dirty = true
+                HandleInputClick(ev[3], ev[4]); dirty = true
             elseif type == "char" then
                 local c = ev[2]
                 if c == "b" or c == "B" then
                     PAGE = "MENU"; dirty = true
                 elseif gui_focus == "id" then
-                    gui_input_id = gui_input_id .. c
-                    dirty = true
+                    gui_input_id = gui_input_id .. c; dirty = true
                 elseif gui_focus == "start" then
                     if c >= "0" and c <= "9" then
-                        gui_input_start = gui_input_start .. c
-                        dirty = true
+                        gui_input_start = gui_input_start .. c; dirty = true
                     end
                 end
             elseif type == "key" then
                 local key = ev[2]
                 if key == keys.backspace then
-                    if gui_focus == "id" then
-                        gui_input_id = gui_input_id:sub(1, -2)
-                    elseif gui_focus == "start" then
-                        gui_input_start = gui_input_start:sub(1, -2)
-                    end
+                    if gui_focus == "id" then gui_input_id = gui_input_id:sub(1, -2)
+                    elseif gui_focus == "start" then gui_input_start = gui_input_start:sub(1, -2) end
                     dirty = true
                 elseif key == keys.tab then
                     if gui_mode == 2 then
@@ -574,16 +600,9 @@ local function GuiMainLoop()
                     end
                     dirty = true
                 elseif key == keys.space then
-                    -- Toggle checkbox focus-less: use input focus to decide
-                    if gui_focus == "id" or gui_focus == "start" then
-                        gui_loop = not gui_loop
-                    else
-                        gui_loop = not gui_loop
-                    end
-                    dirty = true
+                    gui_loop = not gui_loop; dirty = true
                 elseif key == keys.enter then
-                    StartFromGui()
-                    dirty = true
+                    StartFromGui(); dirty = true
                 end
             elseif type == "mouse_scroll" then
                 if ev[2] == -1 then gui_loop = not gui_loop; dirty = true
@@ -593,8 +612,7 @@ local function GuiMainLoop()
 
         elseif PAGE == "PLAY" then
             if type == "mouse_click" then
-                HandlePlayClick(ev[3], ev[4])
-                dirty = true
+                HandlePlayClick(ev[3], ev[4]); dirty = true
             elseif type == "char" then
                 local c = ev[2]
                 if c == "x" or c == "X" then
@@ -608,8 +626,7 @@ local function GuiMainLoop()
             elseif type == "timer" or type == "speaker_audio_empty" then
                 dirty = true
             elseif type == "play_end" then
-                PAGE = "MENU"
-                dirty = true
+                PAGE = "MENU"; dirty = true
             else
                 dirty = true
             end
@@ -643,7 +660,7 @@ if HasCliArgs() then
         if v == "shuffle" then shuffle = true end
     end
     if mode == nil then
-        print("Error arguments")
+        print("Bad args")
         return
     end
     shell.run("clear")
@@ -655,14 +672,14 @@ if HasCliArgs() then
                 term.setCursorPos(1, termSizeY)
                 write("            ")
                 term.setCursorPos(1, termSizeY)
-                write(("%ds / %ds"):format(math.floor((bytes_read * 8) / 48000), math.ceil(total_length)))
+                write(("%ds/%ds"):format(math.floor((bytes_read * 8) / 48000), math.ceil(total_length)))
                 if mode == 2 then
-                    term.setCursorPos(termSizeX - 8, termSizeY - 2)
-                    write("         ")
-                    term.setCursorPos(termSizeX - 8, termSizeY - 1)
-                    write("         ")
-                    term.setCursorPos(termSizeX - 8, termSizeY)
-                    write("| < | > |")
+                    term.setCursorPos(termSizeX - 7, termSizeY - 2)
+                    write("       ")
+                    term.setCursorPos(termSizeX - 7, termSizeY - 1)
+                    write("       ")
+                    term.setCursorPos(termSizeX - 7, termSizeY)
+                    write("|<|>|")
                 end
                 if posy > termSizeY - 3 then
                     term.scroll(4)
@@ -684,9 +701,9 @@ if HasCliArgs() then
             if mode == 2 then
                 local ev, button, x, y = os.pullEvent("mouse_click")
                 if y == termSizeY then
-                    if x < termSizeX and x > termSizeX - 4 then
+                    if x < termSizeX and x > termSizeX - 3 then
                         bytes_read = total_size
-                    elseif x < termSizeX - 4 and x > termSizeX - 8 then
+                    elseif x < termSizeX - 3 and x > termSizeX - 7 then
                         if i > 1 then
                             i = i - 2
                             bytes_read = total_size
@@ -719,7 +736,7 @@ end
 shell.run("clear")
 if not speaker then
     term.setTextColor(colors.red)
-    print("ERROR: speaker peripheral not found!")
+    print("No speaker!")
     term.setTextColor(colors.white)
     return
 end
@@ -731,7 +748,7 @@ local function PlayWrapper()
             gui_playing = true
             local ok, err = pcall(PlayFlow)
             if not ok then
-                GuiLog("[ERR] " .. tostring(err))
+                GuiLog("[!] " .. tostring(err))
                 sleep(1)
             end
             PAGE = "MENU"
