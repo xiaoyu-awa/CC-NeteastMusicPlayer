@@ -58,13 +58,17 @@ local function DrawRect(x, y, w, h, bg)
     end
 end
 
--- Border box. bg = background color for the border character cells, so the
--- border sits flush with the filled interior (no black "shadow" squares).
-local function DrawBorder(x, y, w, h, fg, bg)
+-- Border box with screen-edge clipping (safe for out-of-bounds coords)
+local function DrawBorder(x, y, w, h, fg)
+    local sx, sy = term.getSize()
+    -- Clip to screen
+    if x < 1 then w = w - (1 - x); x = 1 end
+    if y < 1 then h = h - (1 - y); y = 1 end
+    if x + w - 1 > sx then w = sx - x + 1 end
+    if y + h - 1 > sy then h = sy - y + 1 end
     if w < 2 or h < 2 then return end
-    bg = bg or colors.black
     term.setTextColor(fg)
-    term.setBackgroundColor(bg)
+    term.setBackgroundColor(colors.black)
     term.setCursorPos(x, y)
     term.write(string.char(151) .. string.rep(string.char(131), w - 2) .. string.char(148))
     for yy = y + 1, y + h - 2 do
@@ -77,12 +81,17 @@ local function DrawBorder(x, y, w, h, fg, bg)
     term.write(string.char(138) .. string.rep(string.char(131), w - 2) .. string.char(133))
 end
 
--- Button (compact, returns rect for hit test). No "shadow" — border shares
--- the same background as the interior so it looks perfectly flush.
+-- Button: (x,y,w,h) is the *inner fill* area.
+-- 1. Draw filled background
+-- 2. Draw label on top
+-- 3. Draw outer border ONE PIXEL OUTSIDE the fill area
+-- Returns the outer-border rect (including frame) for hit testing.
 local function DrawButton(x, y, w, h, label, active)
     local bg = active and colors.lime or colors.gray
     local fg = colors.black
+    -- 1. Fill background (inner area)
     DrawRect(x, y, w, h, bg)
+    -- 2. Label on background
     term.setTextColor(fg)
     term.setBackgroundColor(bg)
     local ll = #label
@@ -91,11 +100,12 @@ local function DrawButton(x, y, w, h, label, active)
     term.setCursorPos(lx, ly)
     if ll > w then ll = w end
     term.write(label:sub(1, ll))
-    DrawBorder(x, y, w, h, colors.lightGray, bg)
-    return {x = x, y = y, w = w, h = h}
+    -- 3. Outer border: expand 1 pixel in every direction around the fill
+    DrawBorder(x - 1, y - 1, w + 2, h + 2, colors.lightGray)
+    return {x = x - 1, y = y - 1, w = w + 2, h = h + 2}
 end
 
--- Labeled input box (compact). Border bg matches interior so no misalignment.
+-- Labeled input box (compact)
 local function DrawInput(x, y, w, label, value, focused, placeholder)
     term.setBackgroundColor(colors.black)
     term.setTextColor(colors.cyan)
@@ -104,7 +114,7 @@ local function DrawInput(x, y, w, label, value, focused, placeholder)
     local bg = focused and colors.yellow or colors.gray
     local fg = focused and colors.black or colors.white
     DrawRect(x, y + 1, w, 3, bg)
-    DrawBorder(x, y + 1, w, 3, focused and colors.orange or colors.lightGray, bg)
+    DrawBorder(x, y + 1, w, 3, focused and colors.orange or colors.lightGray)
     term.setBackgroundColor(bg)
     term.setTextColor(fg)
     term.setCursorPos(x + 1, y + 2)
