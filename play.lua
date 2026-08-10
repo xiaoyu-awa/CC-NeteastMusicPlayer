@@ -25,7 +25,8 @@ local gui_loop = false
 local gui_shuffle = false
 local gui_focus = "id"  -- current focused input: id / start
 local gui_mode = nil     -- 1/2/3, selected from menu
-local gui_play_stopped = false  -- user pressed stop
+local gui_play_stopped = false  -- user pressed stop (legacy, for direct loops w/o break flag)
+local gui_loop_break_once = false -- transient break signal for repeat/until loops
 local gui_playing = false       -- play coroutine running (prevent reentry)
 local gui_current_song_name = ""
 local gui_log = {}  -- scrollable playback log
@@ -216,7 +217,7 @@ local function PlayMusicCore(url)
         total_length, total_size = get_total_duration(url)
     end
     local file = http.get(url)
-    while bytes_read < total_size and not gui_play_stopped do
+    while bytes_read < total_size do
         local chunk
         if file then
             chunk = file.read(chunk_size)
@@ -226,15 +227,11 @@ local function PlayMusicCore(url)
             buffer = decoder(chunk)
         end
         if buffer and #buffer > 0 then
-            local t0 = os.clock()
-            while not speaker.playAudio(buffer) and not gui_play_stopped do
-                os.startTimer(0.1)
-                local ev = os.pullEvent()
-                if ev == "timer" then
-                    if os.clock() - t0 > 2 then break end
-                elseif ev == "speaker_audio_empty" then
-                    break
-                end
+            -- Original pure blocking design: no timers, no generic pullEvent.
+            -- Another coroutine (ctrl / ui) runs in parallel and can break this
+            -- loop by setting bytes_read >= total_size externally.
+            while not speaker.playAudio(buffer) do
+                os.pullEvent("speaker_audio_empty")
             end
         end
         bytes_read = bytes_read + chunk_size
@@ -256,11 +253,12 @@ local function PlayFlow()
         local url = GetMusicUrl(mid)
         local count = 1
         repeat
+            if gui_loop_break_once then break end
             GuiLog("#" .. count .. " " .. gui_current_song_name)
             PlayMusicCore(url)
             count = count + 1
-        until (not gui_loop) or gui_play_stopped
-        GuiLog(gui_play_stopped and "Stopped" or "Done")
+        until (not gui_loop) or gui_play_stopped or gui_loop_break_once
+        GuiLog((gui_play_stopped or gui_loop_break_once) and "Stopped" or "Done")
 
     elseif gui_mode == 2 then  -- Playlist
         local pid = (mode == 2 and id) or gui_input_id
@@ -277,11 +275,12 @@ local function PlayFlow()
         local startIdx = tonumber(gui_input_start) or 1
         local loopCount = 1
         repeat
+            if gui_loop_break_once then break end
             if gui_shuffle then ShuffleArray(idList) end
             i = math.max(1, math.min(startIdx, #idList))
             startIdx = 1
             GuiLog("Lp" .. loopCount .. " @" .. "#" .. i)
-            while not (i > #idList) and not gui_play_stopped do
+            while not (i > #idList) and not gui_play_stopped and not gui_loop_break_once do
                 local mid = idList[i]
                 gui_current_song_name = GetSongName(mid)
                 GuiLog("[" .. i .. "/" .. #idList .. "] " .. gui_current_song_name)
@@ -294,8 +293,8 @@ local function PlayFlow()
                 i = i + 1
             end
             loopCount = loopCount + 1
-        until (not gui_loop) or gui_play_stopped
-        GuiLog(gui_play_stopped and "Stopped" or "Done")
+        until (not gui_loop) or gui_play_stopped or gui_loop_break_once
+        GuiLog((gui_play_stopped or gui_loop_break_once) and "Stopped" or "Done")
 
     elseif gui_mode == 3 then  -- Local DFPWM file
         local fn = (mode == 3 and id) or gui_input_id
@@ -303,6 +302,7 @@ local function PlayFlow()
         gui_current_song_name = fn
         local loopCount = 1
         repeat
+            if gui_loop_break_once then break end
             GuiLog("#" .. loopCount)
             bytes_read = 0
             local f = io.open(fn, "rb")
@@ -312,16 +312,14 @@ local function PlayFlow()
                 total_size = #all
                 total_length = (total_size * 8) / 48000
                 local pos = 1
-                while pos < total_size and not gui_play_stopped do
+                while pos < total_size and not gui_loop_break_once do
                     local chunk = all:sub(pos, pos + chunk_size - 1)
                     pos = pos + chunk_size
                     bytes_read = bytes_read + chunk_size
                     local buffer = decoder(chunk)
                     if buffer and #buffer > 0 then
-                        while not speaker.playAudio(buffer) and not gui_play_stopped do
-                            os.startTimer(0.1)
-                            local ev = os.pullEvent()
-                            if ev == "speaker_audio_empty" then break end
+                        while not speaker.playAudio(buffer) do
+                            os.pullEvent("speaker_audio_empty")
                         end
                     end
                 end
@@ -331,8 +329,8 @@ local function PlayFlow()
                 break
             end
             loopCount = loopCount + 1
-        until (not gui_loop) or gui_play_stopped
-        GuiLog(gui_play_stopped and "Stopped" or "Done")
+        until (not gui_loop) or gui_loop_break_once
+        GuiLog(gui_loop_break_once and "Stopped" or "Done")
     end
 end
 
@@ -611,24 +609,12 @@ local function GuiMainLoop()
             end
 
         elseif PAGE == "PLAY" then
-            if type == "mouse_click" then
-                HandlePlayClick(ev[3], ev[4]); dirty = true
-            elseif type == "char" then
-                local c = ev[2]
-                if c == "x" or c == "X" then
-                    gui_play_stopped = true; dirty = true
-                elseif c == "<" or c == "," then
-                    if gui_mode == 2 and i > 1 then i = i - 2 end
-                    bytes_read = total_size; dirty = true
-                elseif c == ">" or c == "." then
-                    bytes_read = total_size; dirty = true
-                end
-            elseif type == "timer" or type == "speaker_audio_empty" then
-                dirty = true
-            elseif type == "play_end" then
+            -- PLAY page is handled by 3 parallel coroutines spawned from PlayWrapper.
+            -- GuiMainLoop just waits for playback to finish (gui_playing flipped back).
+            if type == "play_end" then
                 PAGE = "MENU"; dirty = true
             else
-                dirty = true
+                sleep(0.05); dirty = true
             end
         end
     end
@@ -741,16 +727,118 @@ if not speaker then
     return
 end
 
--- GUI mode: UI loop + playback coroutine run in parallel
+-- UI coroutine: periodically redraw the PLAY screen
+local function gui_render_coro()
+    while true do
+        if gui_playing and PAGE == "PLAY" then
+            RenderPlay()
+        end
+        sleep(0.25)
+    end
+end
+
+-- Control coroutine: listen for mouse/keyboard, mutate shared vars
+-- (bytes_read / i) to interrupt the pure-blocking playback coroutine.
+-- This mirrors the original cli_event design exactly.
+local function gui_ctrl_coro()
+    while true do
+        if not (gui_playing and PAGE == "PLAY") then
+            sleep(0.05)
+        else
+            -- Wait for any input event (mouse or key)
+            local ev = {os.pullEvent("mouse_click", "char", "key")}
+            if not (gui_playing and PAGE == "PLAY") then
+                -- playback already ended between pullEvent and here
+            elseif ev[1] == "mouse_click" then
+                local x = ev[3]
+                local y = ev[4]
+                if gui_mode == 2 then
+                    local gap = 1
+                    local totalW = termSizeX - 2
+                    local bw = math.floor((totalW - 2 * gap) / 3)
+                    if PointInRect(x, y, 1, 5, bw, 3) then
+                        -- Prev: bump i back by 2 (the outer while increments by 1 next)
+                        if i > 1 then i = i - 2 end
+                        bytes_read = total_size
+                    elseif PointInRect(x, y, 1 + bw + gap, 5, bw, 3) then
+                        -- Stop all loops: force current song end + break repeat-until
+                        bytes_read = total_size
+                        if gui_mode == 1 then
+                            -- for single: PlayFlow uses repeat/until gui_loop.
+                            -- Setting bytes_read skips current song; without loop
+                            -- that's enough. For looped, unset repeat condition:
+                            gui_loop_break_once = true
+                        elseif gui_mode == 3 then
+                            gui_loop_break_once = true
+                        end
+                        -- For playlist mode we need to break outer repeat as well:
+                        if gui_mode == 2 then
+                            gui_loop_break_once = true
+                        end
+                    elseif PointInRect(x, y, 1 + 2 * (bw + gap), 5, bw, 3) then
+                        -- Next: end current song
+                        bytes_read = total_size
+                    end
+                else
+                    if PointInRect(x, y, 1, 5, termSizeX, 3) then
+                        bytes_read = total_size
+                        gui_loop_break_once = true
+                    end
+                end
+            elseif ev[1] == "char" then
+                local c = ev[2]
+                if c == "x" or c == "X" then
+                    bytes_read = total_size
+                    gui_loop_break_once = true
+                elseif c == "<" or c == "," then
+                    if gui_mode == 2 and i > 1 then i = i - 2 end
+                    bytes_read = total_size
+                elseif c == ">" or c == "." then
+                    bytes_read = total_size
+                end
+            elseif ev[1] == "key" then
+                -- just consume
+            end
+        end
+    end
+end
+
+-- Playback coroutine wrapper: handles gui_loop_break_once override for the
+-- repeat/until loops inside PlayFlow so we can stop looped songs without
+-- modifying bytes_read mid-song.
+local function gui_play_coro()
+    -- Reset transient break flag
+    gui_loop_break_once = false
+    -- Wrap PlayFlow repeat conditions by hooking via pcall; we can't easily
+    -- inject into PlayFlow, so instead we override gui_loop locally by
+    -- monkey-patching with a coroutine-friendly approach:
+    -- Strategy: replace the inner repeat conditions temporarily by wrapping
+    -- the gui_loop read through a closure below.
+    --
+    -- Simpler approach: redefine gui_loop reference by intercepting inside
+    -- PlayFlow. But PlayFlow reads gui_loop directly, so instead we use
+    -- a dedicated local flag copied before each iteration. Easiest:
+    -- poll gui_loop_break_once inside PlayFlow loops. We'll add that minimal
+    -- check in PlayFlow later (it's harmless, no timers).
+    local ok, err = pcall(PlayFlow)
+    if not ok then
+        GuiLog("[!] " .. tostring(err))
+        sleep(1)
+    end
+end
+
+-- GUI mode: when user presses PLAY, spawn 3 parallel coroutines
+-- (playback + ctrl + render) exactly like the original CLI design.
 local function PlayWrapper()
     while true do
         if PAGE == "PLAY" and not gui_playing then
             gui_playing = true
-            local ok, err = pcall(PlayFlow)
-            if not ok then
-                GuiLog("[!] " .. tostring(err))
-                sleep(1)
+            gui_loop_break_once = false
+            local p = function()
+                parallel.waitForAny(gui_play_coro, gui_ctrl_coro, gui_render_coro)
             end
+            pcall(p)
+            -- Playback ended; signal main GUI loop
             PAGE = "MENU"
             gui_playing = false
             os.queueEvent("play_end")
