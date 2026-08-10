@@ -88,7 +88,6 @@ local function DrawButton(x, y, w, h, label, active)
     term.setCursorPos(lx, ly)
     if ll > w then ll = w end
     term.write(label:sub(1, ll))
-    DrawBorder(x, y, w, h, colors.lightGray)
     return {x = x, y = y, w = w, h = h}
 end
 
