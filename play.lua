@@ -10,7 +10,7 @@ local id
 local play = false
 local shuffle = false
 
---[[==================  GUI 基础设施  ==================]]
+--[[==================  GUI Infrastructure  ==================]]
 
 local PAGE = "MENU"   -- MENU / INPUT / PLAY
 local termSizeX, termSizeY = term.getSize()
@@ -18,22 +18,22 @@ local dfpwm = require("cc.audio.dfpwm")
 local speaker = peripheral.find("speaker")
 local decoder = dfpwm.make_decoder()
 
--- GUI 状态
+-- GUI state
 local gui_input_id = ""
 local gui_input_start = "1"
 local gui_loop = false
 local gui_shuffle = false
-local gui_focus = "id"  -- 当前焦点输入框：id / start
-local gui_mode = nil     -- 1/2/3，由菜单选择
-local gui_play_stopped = false  -- 用户按下停止
-local gui_playing = false       -- 播放协程正在运行（防止重复进入）
+local gui_focus = "id"  -- current focused input: id / start
+local gui_mode = nil     -- 1/2/3, selected from menu
+local gui_play_stopped = false  -- user pressed stop
+local gui_playing = false       -- play coroutine running (prevent reentry)
 local gui_current_song_name = ""
-local gui_log = {}  -- 播放日志（滚动显示）
+local gui_log = {}  -- scrollable playback log
 
 local chunk_size = 6000
 local bytes_read = 0
 local total_length, total_size = 0, 0
-local i = 1  -- 歌单切歌用
+local i = 1  -- playlist seek index
 
 function GuiLog(msg)
     gui_log[#gui_log + 1] = msg
@@ -42,12 +42,12 @@ function GuiLog(msg)
     end
 end
 
--- 命中测试
+-- Hit test
 local function PointInRect(px, py, x, y, w, h)
     return px >= x and px < x + w and py >= y and py < y + h
 end
 
--- 画填充矩形（用空格+背景色）
+-- Filled rect (spaces + bg color)
 local function DrawRect(x, y, w, h, bg)
     term.setBackgroundColor(bg)
     local line = string.rep(" ", w)
@@ -57,11 +57,10 @@ local function DrawRect(x, y, w, h, bg)
     end
 end
 
--- 画边框
+-- Border box
 local function DrawBorder(x, y, w, h, fg)
     term.setTextColor(fg)
     term.setBackgroundColor(colors.black)
-    -- 顶/底
     term.setCursorPos(x, y)
     term.write(string.char(151) .. string.rep(string.char(131), w - 2) .. string.char(148))
     for yy = y + 1, y + h - 2 do
@@ -74,7 +73,7 @@ local function DrawBorder(x, y, w, h, fg)
     term.write(string.char(138) .. string.rep(string.char(131), w - 2) .. string.char(133))
 end
 
--- 画按钮（返回矩形数据供点击判定）
+-- Button (returns rect for hit test)
 local function DrawButton(x, y, w, h, label, active)
     local bg = active and colors.lime or colors.gray
     local fg = colors.black
@@ -89,14 +88,12 @@ local function DrawButton(x, y, w, h, label, active)
     return {x = x, y = y, w = w, h = h}
 end
 
--- 画带标签的输入框
+-- Labeled input box
 local function DrawInput(x, y, w, label, value, focused, placeholder)
-    -- 标签
     term.setBackgroundColor(colors.black)
     term.setTextColor(colors.cyan)
     term.setCursorPos(x, y)
     term.write(label)
-    -- 框
     local bg = focused and colors.yellow or colors.gray
     local fg = focused and colors.black or colors.white
     DrawRect(x, y + 1, w, 3, bg)
@@ -120,7 +117,7 @@ local function DrawInput(x, y, w, label, value, focused, placeholder)
     end
 end
 
--- 画复选框
+-- Checkbox
 local function DrawCheckbox(x, y, label, checked)
     term.setBackgroundColor(colors.black)
     term.setTextColor(colors.white)
@@ -132,7 +129,7 @@ local function DrawCheckbox(x, y, label, checked)
     term.write("] " .. label)
 end
 
--- 画进度条
+-- Progress bar
 local function DrawProgressBar(x, y, w, percent)
     percent = math.max(0, math.min(1, percent))
     DrawRect(x, y, w, 1, colors.gray)
@@ -143,16 +140,16 @@ local function DrawProgressBar(x, y, w, percent)
     term.setBackgroundColor(colors.black)
 end
 
--- 画页面标题
+-- Page title bar
 local function DrawTitle(text)
     DrawRect(1, 1, termSizeX, 2, colors.blue)
     term.setBackgroundColor(colors.blue)
     term.setTextColor(colors.yellow)
-    term.setCursorPos(math.floor((termSizeX - #text) / 2), 2)
-    term.write(text)
+    term.setCursorPos(math.max(1, math.floor((termSizeX - #text) / 2)), 2)
+    term.write(text:sub(1, termSizeX))
 end
 
---[[==================  业务工具函数  ==================]]
+--[[==================  Business helpers  ==================]]
 
 function ShuffleArray(arr)
     math.randomseed(os.epoch("utc"))
@@ -187,12 +184,17 @@ function GetSongName(music_id)
     if not ok then return "ID:" .. music_id end
     local detail = textutils.unserialiseJSON(data)
     if detail and detail.songs and detail.songs[1] then
-        return detail.songs[1].name or ("ID:" .. music_id)
+        local n = detail.songs[1].name
+        if n and type(n) == "string" and #n > 0 then
+            -- Strip non-ASCII chars so CC terminal doesn't render garbage
+            local stripped = n:gsub("[^\32-\126]", "?")
+            if #stripped > 0 then return stripped end
+        end
     end
     return "ID:" .. music_id
 end
 
---[[==================  播放核心（改造版）  ==================]]
+--[[==================  Playback core (refactored)  ==================]]
 
 local function PlayMusicCore(url)
     bytes_read = 0
@@ -222,9 +224,8 @@ local function PlayMusicCore(url)
         if buffer and #buffer > 0 then
             local t0 = os.clock()
             while not speaker.playAudio(buffer) and not gui_play_stopped do
-                -- 等待最多 0.5s，避免卡死错过停止信号
                 os.startTimer(0.1)
-                local ev, p1 = os.pullEvent()
+                local ev = os.pullEvent()
                 if ev == "timer" then
                     if os.clock() - t0 > 2 then break end
                 elseif ev == "speaker_audio_empty" then
@@ -237,33 +238,29 @@ local function PlayMusicCore(url)
     if file then file.close() end
 end
 
--- 实际播放流程
+-- Actual playback flow dispatcher
 local function PlayFlow()
     bytes_read = 0
     total_length = 0
     total_size = 0
     gui_play_stopped = false
 
-    if gui_mode == 1 then  -- 单曲
+    if gui_mode == 1 then  -- Single track
         local mid = (mode == 1 and id) or gui_input_id
-        GuiLog("获取音乐: " .. mid)
+        GuiLog("Fetching track: " .. mid)
         gui_current_song_name = GetSongName(mid)
         local url = GetMusicUrl(mid)
         local count = 1
         repeat
-            GuiLog("播放 #" .. count .. ": " .. gui_current_song_name)
+            GuiLog("Play #" .. count .. ": " .. gui_current_song_name)
             PlayMusicCore(url)
             count = count + 1
         until (not gui_loop) or gui_play_stopped
-        if gui_play_stopped then
-            GuiLog("用户停止")
-        else
-            GuiLog("播放完成")
-        end
+        GuiLog(gui_play_stopped and "Stopped by user" or "Playback finished")
 
-    elseif gui_mode == 2 then  -- 歌单
+    elseif gui_mode == 2 then  -- Playlist
         local pid = (mode == 2 and id) or gui_input_id
-        GuiLog("加载歌单: " .. pid)
+        GuiLog("Loading playlist: " .. pid)
         local data = http.get(NeteastMusicApi .. "/playlist/detail?s=0&id=" .. pid).readAll()
         local musicList = textutils.unserialiseJSON(data)
         local List = musicList["playlist"]["tracks"]
@@ -271,7 +268,7 @@ local function PlayFlow()
         for index, value in pairs(List) do
             idList[#idList + 1] = value["id"]
         end
-        GuiLog("歌单共 " .. #idList .. " 首" .. (gui_shuffle and "（随机）" or ""))
+        GuiLog(tostring(#idList) .. " tracks" .. (gui_shuffle and " (shuffle)" or ""))
 
         local startIdx = tonumber(gui_input_start) or 1
         local loopCount = 1
@@ -279,7 +276,7 @@ local function PlayFlow()
             if gui_shuffle then ShuffleArray(idList) end
             i = math.max(1, math.min(startIdx, #idList))
             startIdx = 1
-            GuiLog("轮次 " .. loopCount .. "，从第 " .. i .. " 首开始")
+            GuiLog("Loop " .. loopCount .. ", starting at #" .. i)
             while not (i > #idList) and not gui_play_stopped do
                 local mid = idList[i]
                 gui_current_song_name = GetSongName(mid)
@@ -288,21 +285,21 @@ local function PlayFlow()
                 if ok and url then
                     PlayMusicCore(url)
                 else
-                    GuiLog("获取失败，跳过")
+                    GuiLog("Fetch failed, skipped")
                 end
                 i = i + 1
             end
             loopCount = loopCount + 1
         until (not gui_loop) or gui_play_stopped
-        GuiLog(gui_play_stopped and "用户停止" or "播放完成")
+        GuiLog(gui_play_stopped and "Stopped by user" or "Playback finished")
 
-    elseif gui_mode == 3 then  -- 本地 DFPWM
+    elseif gui_mode == 3 then  -- Local DFPWM file
         local fn = (mode == 3 and id) or gui_input_id
-        GuiLog("本地文件: " .. fn)
+        GuiLog("Local file: " .. fn)
         gui_current_song_name = fn
         local loopCount = 1
         repeat
-            GuiLog("播放 #" .. loopCount)
+            GuiLog("Play #" .. loopCount)
             bytes_read = 0
             local f = io.open(fn, "rb")
             if f then
@@ -325,69 +322,65 @@ local function PlayFlow()
                     end
                 end
             else
-                GuiLog("无法打开文件")
+                GuiLog("Cannot open file")
                 sleep(1)
                 break
             end
             loopCount = loopCount + 1
         until (not gui_loop) or gui_play_stopped
-        GuiLog(gui_play_stopped and "用户停止" or "播放完成")
+        GuiLog(gui_play_stopped and "Stopped by user" or "Playback finished")
     end
 end
 
---[[==================  页面渲染  ==================]]
+--[[==================  Page renderers  ==================]]
 
 local function RenderMenu()
     term.clear()
     term.setBackgroundColor(colors.black)
-    DrawTitle("   ~ 网易云音乐播放器 ~")
+    DrawTitle(" ~ Netease Music Player ~ ")
     term.setTextColor(colors.white)
     term.setBackgroundColor(colors.black)
     term.setCursorPos(2, 4)
-    term.write("请选择播放模式：")
+    term.write("Select playback mode:")
     local bw = termSizeX - 8
-    DrawButton(4, 6, bw, 3, "[1] 单曲播放（ID）", false)
-    DrawButton(4, 10, bw, 3, "[2] 歌单播放（ID）", false)
-    DrawButton(4, 14, bw, 3, "[3] 本地 DFPWM 文件", false)
-    -- 底部提示
+    DrawButton(4, 6, bw, 3, "[1] Single Track (by ID)", false)
+    DrawButton(4, 10, bw, 3, "[2] Playlist (by ID)", false)
+    DrawButton(4, 14, bw, 3, "[3] Local DFPWM File", false)
     term.setCursorPos(2, termSizeY - 1)
     term.setTextColor(colors.lightGray)
-    term.write("点击按钮或按 1/2/3 键")
+    term.write("Click a button or press 1 / 2 / 3")
     term.setCursorPos(2, termSizeY)
-    term.write("或使用命令行: play id <id> cycle shuffle")
+    term.write("CLI: play id <id> cycle shuffle")
 end
 
 local function RenderInput()
     term.clear()
-    local title = "参数设置 - " .. (gui_mode == 1 and "单曲" or gui_mode == 2 and "歌单" or "本地DFPWM")
-    DrawTitle(title)
-    -- ID 输入框
-    local ph = gui_mode == 3 and "例如: music.dfpwm" or "例如: 33894312"
-    DrawInput(3, 4, termSizeX - 6, "ID / 文件名：", gui_input_id, gui_focus == "id", ph)
-    -- 起始序号（歌单模式才显示）
+    local sub = gui_mode == 1 and "Single" or gui_mode == 2 and "Playlist" or "LocalDFPWM"
+    DrawTitle(" Parameters - " .. sub)
+    local ph = gui_mode == 3 and "e.g. music.dfpwm" or "e.g. 33894312"
+    DrawInput(3, 4, termSizeX - 6, "ID / File path:", gui_input_id, gui_focus == "id", ph)
     if gui_mode == 2 then
-        DrawInput(3, 8, 10, "起始序号：", gui_input_start, gui_focus == "start", "1")
+        DrawInput(3, 8, 10, "Start index:", gui_input_start, gui_focus == "start", "1")
     end
-    -- 复选框
     local cy = gui_mode == 2 and 13 or 9
-    DrawCheckbox(3, cy, "循环播放", gui_loop)
-    DrawCheckbox(3, cy + 1, "随机播放（仅歌单有效）", gui_shuffle)
-    -- 按钮
+    DrawCheckbox(3, cy, "Loop playback", gui_loop)
+    DrawCheckbox(3, cy + 1, "Shuffle (playlist only)", gui_shuffle)
     local bw = math.floor((termSizeX - 8) / 2)
-    DrawButton(3, termSizeY - 4, bw, 3, "[B] 返回", false)
-    DrawButton(5 + bw, termSizeY - 4, bw, 3, "[ENTER] 开始播放", true)
-    -- 提示
+    DrawButton(3, termSizeY - 4, bw, 3, "[B] Back", false)
+    DrawButton(5 + bw, termSizeY - 4, bw, 3, "[ENTER] Start", true)
     term.setBackgroundColor(colors.black)
     term.setTextColor(colors.lightGray)
     term.setCursorPos(2, termSizeY)
-    term.write("Tab 切换输入框, 空格打勾, 字母键点击")
+    term.write("Tab:switch input Space:toggle Enter:confirm")
 end
 
 local function RenderPlay()
     term.clear()
-    DrawTitle("  播放中  |  " .. (gui_loop and "[循环] " or "") .. (gui_shuffle and "[随机]" or ""))
+    local flags = ""
+    if gui_loop then flags = flags .. "[LOOP] " end
+    if gui_shuffle then flags = flags .. "[SHUFFLE]" end
+    DrawTitle(" NOW PLAYING  " .. flags)
 
-    -- 歌曲名
     term.setBackgroundColor(colors.black)
     term.setTextColor(colors.yellow)
     term.setCursorPos(2, 4)
@@ -395,7 +388,6 @@ local function RenderPlay()
     if #name > termSizeX - 4 then name = name:sub(1, termSizeX - 7) .. "..." end
     term.write(name)
 
-    -- 进度条
     local percent = 0
     if total_size and total_size > 0 then
         percent = bytes_read / total_size
@@ -409,28 +401,26 @@ local function RenderPlay()
         cur = (bytes_read * 8) / 48000
     end
     term.setCursorPos(2, 7)
-    term.write(string.format("%ds / %ds   进度 %d%%",
+    term.write(string.format("%ds / %ds   %d%%",
         math.floor(cur), math.ceil(tot), math.floor(percent * 100)))
 
-    -- 控制按钮（歌单显示上下首）
     local bw = math.floor((termSizeX - 8) / 3)
     if gui_mode == 2 then
-        DrawButton(2, 9, bw, 3, "[<] 上一首", false)
-        DrawButton(3 + bw, 9, bw, 3, "[X] 停止", true)
-        DrawButton(4 + 2 * bw, 9, bw, 3, "[>] 下一首", false)
+        DrawButton(2, 9, bw, 3, "[<] Prev", false)
+        DrawButton(3 + bw, 9, bw, 3, "[X] Stop", true)
+        DrawButton(4 + 2 * bw, 9, bw, 3, "[>] Next", false)
     else
         local stopW = termSizeX - 10
-        DrawButton(5, 9, stopW, 3, "[X] 停止并返回", true)
+        DrawButton(5, 9, stopW, 3, "[X] Stop & Return", true)
     end
 
-    -- 日志区域
     local logY = 12
     local logH = termSizeY - logY - 1
     DrawRect(2, logY - 1, termSizeX - 3, 1, colors.gray)
     term.setTextColor(colors.white)
     term.setBackgroundColor(colors.gray)
     term.setCursorPos(2, logY - 1)
-    term.write(" 播放日志 ")
+    term.write(" Playback Log ")
     term.setBackgroundColor(colors.black)
     term.setTextColor(colors.lightGray)
     for idx = 1, logH do
@@ -444,9 +434,8 @@ local function RenderPlay()
     end
 end
 
---[[==================  事件分发  ==================]]
+--[[==================  Event dispatchers  ==================]]
 
--- 菜单点击
 local function HandleMenuClick(x, y)
     local bw = termSizeX - 8
     if PointInRect(x, y, 4, 6, bw, 3) then
@@ -466,23 +455,19 @@ local function HandleMenuClick(x, y)
     end
 end
 
--- 输入页点击
 local function HandleInputClick(x, y)
-    -- 焦点切换
     if PointInRect(x, y, 3, 5, termSizeX - 6, 3) then
         gui_focus = "id"
     elseif gui_mode == 2 and PointInRect(x, y, 3, 9, 10, 3) then
         gui_focus = "start"
     end
-    -- 复选框
     local cy = gui_mode == 2 and 13 or 9
-    if PointInRect(x, y, 3, cy, 12, 1) then
+    if PointInRect(x, y, 3, cy, 16, 1) then
         gui_loop = not gui_loop
     end
     if PointInRect(x, y, 3, cy + 1, 28, 1) then
         gui_shuffle = not gui_shuffle
     end
-    -- 按钮
     local bw = math.floor((termSizeX - 8) / 2)
     if PointInRect(x, y, 3, termSizeY - 4, bw, 3) then
         PAGE = "MENU"
@@ -491,19 +476,15 @@ local function HandleInputClick(x, y)
     end
 end
 
--- 播放页点击
 local function HandlePlayClick(x, y)
     local bw = math.floor((termSizeX - 8) / 3)
     if gui_mode == 2 then
         if PointInRect(x, y, 2, 9, bw, 3) then
-            -- 上一首
             if i > 1 then i = i - 2 end
             bytes_read = total_size
         elseif PointInRect(x, y, 3 + bw, 9, bw, 3) then
-            -- 停止
             gui_play_stopped = true
         elseif PointInRect(x, y, 4 + 2 * bw, 9, bw, 3) then
-            -- 下一首
             bytes_read = total_size
         end
     else
@@ -514,15 +495,13 @@ local function HandlePlayClick(x, y)
     end
 end
 
---[[==================  GUI 启动播放  ==================]]
+--[[==================  Start playback from GUI  ==================]]
 
 function StartFromGui()
-    -- 同步到全局变量
     mode = gui_mode
     id = gui_input_id
     play = gui_loop
     shuffle = gui_shuffle
-    -- 歌单模式起始序号写回 arg[4]（兼容旧逻辑）
     if gui_mode == 2 then
         arg[4] = gui_input_start
     end
@@ -531,7 +510,7 @@ function StartFromGui()
     PAGE = "PLAY"
 end
 
---[[==================  主事件循环  ==================]]
+--[[==================  Main event loop  ==================]]
 
 local function GuiMainLoop()
     local dirty = true
@@ -595,21 +574,18 @@ local function GuiMainLoop()
                     end
                     dirty = true
                 elseif key == keys.space then
-                    -- 打勾：先循环，再随机
+                    -- Toggle checkbox focus-less: use input focus to decide
                     if gui_focus == "id" or gui_focus == "start" then
-                        -- noop
+                        gui_loop = not gui_loop
                     else
-                        gui_loop = not gui_loop; dirty = true
+                        gui_loop = not gui_loop
                     end
                     dirty = true
                 elseif key == keys.enter then
                     StartFromGui()
                     dirty = true
-                elseif key == keys.backspace and (gui_input_id == "" and gui_input_start == "") then
-                    PAGE = "MENU"; dirty = true
                 end
             elseif type == "mouse_scroll" then
-                -- 空格打勾切换
                 if ev[2] == -1 then gui_loop = not gui_loop; dirty = true
                 elseif ev[2] == 1 then gui_shuffle = not gui_shuffle; dirty = true
                 end
@@ -630,18 +606,18 @@ local function GuiMainLoop()
                     bytes_read = total_size; dirty = true
                 end
             elseif type == "timer" or type == "speaker_audio_empty" then
-                dirty = true  -- 刷新进度
+                dirty = true
             elseif type == "play_end" then
                 PAGE = "MENU"
                 dirty = true
             else
-                dirty = true  -- 其他事件也刷新 UI（日志区）
+                dirty = true
             end
         end
     end
 end
 
---[[==================  兼容旧命令行  ==================]]
+--[[==================  Legacy CLI compatibility  ==================]]
 
 local function HasCliArgs()
     local m = nil
@@ -654,7 +630,6 @@ local function HasCliArgs()
 end
 
 if HasCliArgs() then
-    -- 命令行模式：沿用旧逻辑
     for index, value in ipairs(feature) do
         if arg[1] == value then mode = index end
     end
@@ -724,7 +699,6 @@ if HasCliArgs() then
         end
     end
 
-    -- 用 GUI 的 PlayFlow（但要先同步 gui_mode 等）
     gui_mode = mode
     gui_input_id = id
     gui_loop = play
@@ -740,24 +714,24 @@ if HasCliArgs() then
     return
 end
 
---[[==================  无参数，进入 GUI 模式  ==================]]
+--[[==================  No args => enter GUI mode  ==================]]
 
 shell.run("clear")
 if not speaker then
     term.setTextColor(colors.red)
-    print("错误: 未找到 speaker 外设！请连接扬声器。")
+    print("ERROR: speaker peripheral not found!")
     term.setTextColor(colors.white)
     return
 end
 
--- GUI 模式：UI 循环 + 播放协程 并行
+-- GUI mode: UI loop + playback coroutine run in parallel
 local function PlayWrapper()
     while true do
         if PAGE == "PLAY" and not gui_playing then
             gui_playing = true
             local ok, err = pcall(PlayFlow)
             if not ok then
-                GuiLog("[错误] " .. tostring(err))
+                GuiLog("[ERR] " .. tostring(err))
                 sleep(1)
             end
             PAGE = "MENU"
