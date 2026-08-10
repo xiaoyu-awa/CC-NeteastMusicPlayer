@@ -114,9 +114,6 @@ local playMusic = function ()
         if play then
             print("play in loop mode")
             local count = 1
-            if arg[4]==nil then
-                count=tonumber(arg[4])
-            end
             while play do
                 print("loop count:"..tostring(count))
                 PlayMusic(url)
@@ -147,6 +144,9 @@ local playMusic = function ()
             local count = 1
             while play do
                 i=1
+                if not arg[4]==nil then
+                    i=tonumber(arg[4])
+                end
                 print("loop count:"..tostring(count))
                 while not (i>#idList) do
                     local mid = idList[i]
