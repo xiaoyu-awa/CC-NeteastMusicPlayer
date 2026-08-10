@@ -11,11 +11,13 @@ local play = false
 
 shell.run("clear")
 --init vars
-if arg[1]==nil then
-    print("play [id/lid/dfpwm] [id] {once/cycle}")
+if arg[1]==nil or arg[2]==nil then
+    print("play [id/lid/dfpwm] [id] {once/cycle} {i}")
+    print("----------")
     print(" id/uid: select musicid or playlist id")
     print(" id: the id of music or playlist | filename when using dfpwm mode")
     print(" once/cycle: play mode(default:once)")
+    print(" i: to choose where start playing in list mod ")
 end
 
 for index, value in ipairs(feature) do
@@ -112,6 +114,9 @@ local playMusic = function ()
         if play then
             print("play in loop mode")
             local count = 1
+            if arg[4]==nil then
+                count=tonumber(arg[4])
+            end
             while play do
                 print("loop count:"..tostring(count))
                 PlayMusic(url)
