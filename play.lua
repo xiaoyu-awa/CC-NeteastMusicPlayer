@@ -76,22 +76,53 @@ local function DrawBorder(x, y, w, h, fg)
 end
 
 -- Button (compact, returns rect for hit test)
+-- NO outer border / NO background color switching: draw everything on the
+-- button's own fill background using CC box-drawing chars. This avoids the
+-- 1-pixel "shadow / misalignment" artifact caused by switching bg color
+-- between fill and border.
 local function DrawButton(x, y, w, h, label, active)
     local bg = active and colors.lime or colors.gray
     local fg = colors.black
+    local frameFg = active and colors.green or colors.lightGray
+    -- 1. Fill
     DrawRect(x, y, w, h, bg)
+    -- 2. Self-contained frame (same bg). Only draw if w>=2 and h>=2.
+    term.setBackgroundColor(bg)
+    if w >= 2 and h >= 2 then
+        term.setTextColor(frameFg)
+        -- top row: corner + dashes + corner
+        local dashes = string.rep(string.char(131), w - 2)
+        term.setCursorPos(x, y)
+        term.write(string.char(151) .. dashes .. string.char(148))
+        -- middle rows: left bar + (fill already there so nothing) + right bar
+        for yy = y + 1, y + h - 2 do
+            term.setCursorPos(x, yy)
+            term.write(string.char(149))
+            term.setCursorPos(x + w - 1, yy)
+            term.write(string.char(149))
+        end
+        -- bottom row
+        term.setCursorPos(x, y + h - 1)
+        term.write(string.char(138) .. dashes .. string.char(133))
+    end
+    -- 3. Centered label (keep bg; do NOT switch to black)
     term.setTextColor(fg)
     term.setBackgroundColor(bg)
     local ll = #label
-    local lx = x + math.max(0, math.floor((w - ll) / 2))
+    local labelW = math.min(ll, w)
+    local lx = x + math.max(0, math.floor((w - labelW) / 2))
     local ly = y + math.floor(h / 2)
     term.setCursorPos(lx, ly)
-    if ll > w then ll = w end
-    term.write(label:sub(1, ll))
+    term.write(label:sub(1, labelW))
+    -- Leave terminal background as black so subsequent writes are safe
+    term.setBackgroundColor(colors.black)
     return {x = x, y = y, w = w, h = h}
 end
 
 -- Labeled input box (compact)
+-- Self-rendered frame on the input's own fill background to avoid the
+-- 1-px misalignment / shadow artifact that DrawBorder introduced by
+-- temporarily switching bg to black.
 local function DrawInput(x, y, w, label, value, focused, placeholder)
     term.setBackgroundColor(colors.black)
     term.setTextColor(colors.cyan)
@@ -99,8 +130,29 @@ local function DrawInput(x, y, w, label, value, focused, placeholder)
     term.write(label)
     local bg = focused and colors.yellow or colors.gray
     local fg = focused and colors.black or colors.white
+    local frameFg = focused and colors.orange or colors.lightGray
+    -- 1. Fill the 3-row box
     DrawRect(x, y + 1, w, 3, bg)
-    DrawBorder(x, y + 1, w, 3, focused and colors.orange or colors.lightGray)
+    -- 2. Self-contained 3-row frame (bg stays the fill color).
+    -- Box is exactly h=3: top corners at y+1, one middle pair of vertical bars
+    -- at y+2, bottom corners at y+3.
+    term.setBackgroundColor(bg)
+    if w >= 2 then
+        term.setTextColor(frameFg)
+        local dashes = string.rep(string.char(131), w - 2)
+        -- top row of box (y+1)
+        term.setCursorPos(x, y + 1)
+        term.write(string.char(151) .. dashes .. string.char(148))
+        -- middle row (y+2) - one pair of vertical bars
+        term.setCursorPos(x, y + 2)
+        term.write(string.char(149))
+        term.setCursorPos(x + w - 1, y + 2)
+        term.write(string.char(149))
+        -- bottom row of box (y+3)
+        term.setCursorPos(x, y + 3)
+        term.write(string.char(138) .. dashes .. string.char(133))
+    end
+    -- 3. Text content in the middle row, shifted 1 char inside the frame
     term.setBackgroundColor(bg)
     term.setTextColor(fg)
     term.setCursorPos(x + 1, y + 2)
@@ -119,6 +171,8 @@ local function DrawInput(x, y, w, label, value, focused, placeholder)
             if #display < maxIn then term.write("_") end
         end
     end
+    -- Restore bg for next draw calls that don't explicitly set it
+    term.setBackgroundColor(colors.black)
 end
 
 -- Checkbox (short label)
