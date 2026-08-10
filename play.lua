@@ -458,10 +458,24 @@ end
 
 --[[==================  Startup-style page renderers  ==================]]
 
--- Small blit-rect helper to paint a row of colored characters.
+-- Small blit-rect helper to paint a row of colored characters safely.
 local function BlitRow(x, y, chars, tcolor, bcolor)
+    local n = #chars
     term.setCursorPos(x, y)
-    term.blit(chars, genStr(tcolor, #chars), genStr(bcolor, #chars))
+    term.blit(chars, genStr(tcolor, n), genStr(bcolor, n))
+end
+
+-- Paint a solid background row, then overlay a label centered in it.
+-- Uses term.blit safely: all three blit() args always have equal length.
+local function BlitLabelBar(x, y, w, label, tcolor, bcolor)
+    BlitRow(x, y, string.rep(" ", w), tcolor, bcolor)
+    if label and #label > 0 then
+        local ll = math.min(#label, w)
+        local lab = label:sub(1, ll)
+        local lx = x + math.floor((w - ll) / 2)
+        term.setCursorPos(lx, y)
+        term.blit(lab, genStr(tcolor, ll), genStr(bcolor, ll))
+    end
 end
 
 local function RenderMenu()
@@ -505,11 +519,7 @@ local function RenderMenu()
     local btnW = math.min(termSizeX - 4, 18)
     local bx = math.floor((termSizeX - btnW) / 2)
     local by = 9
-    BlitRow(bx, by, string.rep(" ", btnW), "0", "5")
-    local lab = "ENTER Start"
-    local lx = bx + math.floor((btnW - #lab) / 2)
-    term.setCursorPos(lx, by)
-    term.blit(lab, genStr("0", #lab), genStr("5", #lab))
+    BlitLabelBar(bx, by, btnW, "ENTER Start", "0", "5")
     -- Border
     BlitRow(bx, by - 1, string.rep("-", btnW), "8", "0")
     BlitRow(bx, by + 1, string.rep("-", btnW), "8", "0")
@@ -551,15 +561,8 @@ local function RenderInput()
     -- Bottom buttons: BACK + START (blit bars)
     local bw = math.floor((termSizeX - 6) / 2)
     local by = termSizeY - 3
-    BlitRow(2, by, string.rep(" ", bw), "0", "8")
-    local lab1 = "B Back"
-    term.setCursorPos(2 + math.floor((bw - #lab1) / 2), by)
-    term.blit(lab1, genStr("f", #lab1), genStr("8", bw))
-
-    BlitRow(4 + bw, by, string.rep(" ", bw), "0", "5")
-    local lab2 = "ENT Play"
-    term.setCursorPos(4 + bw + math.floor((bw - #lab2) / 2), by)
-    term.blit(lab2, genStr("0", #lab2), genStr("5", bw))
+    BlitLabelBar(2, by, bw, "B Back", "f", "8")
+    BlitLabelBar(4 + bw, by, bw, "ENT Play", "0", "5")
 
     term.setBackgroundColor(colors.black)
     term.setTextColor(colors.lightGray)
@@ -622,36 +625,11 @@ local function RenderPlay()
         local gap = 1
         local totalW = termSizeX - 2
         local bw = math.floor((totalW - 2 * gap) / 3)
-        -- Prev
-        BlitRow(1, 5, string.rep(" ", bw), "0", "8")
-        do
-            local lab = "<Prev"
-            local lx = 1 + math.max(0, math.floor((bw - #lab) / 2))
-            term.setCursorPos(lx, 5)
-            term.blit(lab, genStr("f", #lab), genStr("8", bw))
-        end
-        -- Stop
-        BlitRow(1 + bw + gap, 5, string.rep(" ", bw), "0", "e")
-        do
-            local lab = "Stop"
-            local lx = 1 + bw + gap + math.max(0, math.floor((bw - #lab) / 2))
-            term.setCursorPos(lx, 5)
-            term.blit(lab, genStr("0", #lab), genStr("e", bw))
-        end
-        -- Next
-        BlitRow(1 + 2 * (bw + gap), 5, string.rep(" ", bw), "0", "8")
-        do
-            local lab = "Next>"
-            local lx = 1 + 2 * (bw + gap) + math.max(0, math.floor((bw - #lab) / 2))
-            term.setCursorPos(lx, 5)
-            term.blit(lab, genStr("f", #lab), genStr("8", bw))
-        end
+        BlitLabelBar(1, 5, bw, "<Prev", "f", "8")
+        BlitLabelBar(1 + bw + gap, 5, bw, "Stop", "0", "e")
+        BlitLabelBar(1 + 2 * (bw + gap), 5, bw, "Next>", "f", "8")
     else
-        BlitRow(1, 5, string.rep(" ", termSizeX), "0", "e")
-        local lab = "X STOP & BACK"
-        local lx = math.max(1, math.floor((termSizeX - #lab) / 2))
-        term.setCursorPos(lx, 5)
-        term.blit(lab, genStr("0", #lab), genStr("e", termSizeX))
+        BlitLabelBar(1, 5, termSizeX, "X STOP & BACK", "0", "e")
     end
 
     -- Log header + log region
@@ -666,7 +644,8 @@ local function RenderPlay()
         local line = gui_log[#gui_log - (logH - idx)]
         if line then
             if #line > termSizeX then line = line:sub(1, termSizeX - 3) .. ".." end
-            term.blit(line .. string.rep(" ", math.max(0, termSizeX - #line)), "7", "0")
+            local disp = line .. string.rep(" ", math.max(0, termSizeX - #line))
+            term.blit(disp, genStr("7", #disp), genStr("0", #disp))
         end
     end
 end
