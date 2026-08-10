@@ -144,8 +144,9 @@ local playMusic = function ()
             local count = 1
             while play do
                 i=1
-                if not arg[4]==nil then
-                    i=tonumber(arg[4])
+                if not (arg[4]==nil) then
+                    i = tonumber(arg[4])
+                    arg[4] = 1
                 end
                 print("loop count:"..tostring(count))
                 while not (i>#idList) do
