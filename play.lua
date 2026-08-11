@@ -3,21 +3,22 @@ local TransApi = "http://newgmapi.liulikeji.cn/api/ffmpeg"
 
 
 local feature = {"id","lid","dfpwm"} --1=id 2=lid 3=dfpwm
-local playMode = {"once","cycle"} --1=once 2=cycle
 
 local mode
 local id
 local play = false
+local shuffle = false
 
 shell.run("clear")
 --init vars
 if arg[1]==nil or arg[2]==nil then
-    print("play [id/lid/dfpwm] [id] {once/cycle} {i}")
+    print("play [id/lid/dfpwm] [id] {-c/-s/-o}")
     print("----------")
-    print(" id/uid: select musicid or playlist id")
+    print(" id/lid/dfpwm: play mode")
     print(" id: the id of music or playlist | filename when using dfpwm mode")
-    print(" once/cycle: play mode(default:once)")
-    print(" i: to choose where start playing in list mod ")
+    print(" -c: cycle mode")
+    print(" -s: shuffle playlist order")
+    print(" -o: once mode(default)")
 end
 
 for index, value in ipairs(feature) do
@@ -26,10 +27,15 @@ for index, value in ipairs(feature) do
     end
 end
 id = arg[2]
-for index, value in ipairs(playMode) do
-    if arg[3]==value then
-        if index==2 then
+for index, value in ipairs(arg) do
+    if value:sub(1,1)=="-" then
+        local flag = value:sub(2)
+        if flag=="c" then
             play=true
+        elseif flag=="o" then
+            play=false
+        elseif flag=="s" then
+            shuffle=true
         end
     end
 end
@@ -107,6 +113,15 @@ function PlayMusic(url)
     end
 end
 
+function ShuffleArray(arr)
+    local n = #arr
+    for i = n, 2, -1 do
+        local j = math.random(1, i)
+        arr[i], arr[j] = arr[j], arr[i]
+    end
+    return arr
+end
+
 local playMusic = function ()
     if mode==1 then
         local url =GetMusicUrl(id)
@@ -141,12 +156,18 @@ local playMusic = function ()
             idList[#idList + 1] = value["id"]
         end
 
+        if shuffle then
+            print("shuffle enabled")
+        end
 
         if play then
             print("play list in loop mode")
             local count = 1
             while play do
                 i=1
+                if shuffle then
+                    ShuffleArray(idList)
+                end
                 print("loop count:"..tostring(count))
                 while not (i>#idList) do
                     local mid = idList[i]
@@ -159,6 +180,9 @@ local playMusic = function ()
             end
         else
             print("play music list once")
+            if shuffle then
+                ShuffleArray(idList)
+            end
             while not (i>#idList) do
                 local mid = idList[i]
                 print("playing id: "..mid.." ("..i.."/"..#idList..")")
