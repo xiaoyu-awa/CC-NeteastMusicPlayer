@@ -12,8 +12,10 @@
 *  `play [id/lid/dfpwm] [id] {once/cycle}`
     * `id/lid/dfpwm`: 选择id类型 id=**音乐id** lid=**歌单id*** dfpwm=**电脑内dfpwm播放**
     * `id`: 音乐或者歌单id | 当为dfpwm播放时为文件路径
-    * `once/cycle`: 播放模式 once**单次播放** cycle**循环播放***(默认单次播放)
+    * `-o -c`: 播放模式 once**单次播放** cycle**循环播放***(默认单次播放)
+    * `-s`: 随机播放
 
+* 在目录下放置cookie.txt登录账号
 
 ## 参考
 
