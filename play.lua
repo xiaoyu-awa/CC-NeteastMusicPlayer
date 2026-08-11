@@ -49,13 +49,26 @@ local termSizeX, termSizeY = term.getSize()
 local dfpwm = require("cc.audio.dfpwm")
 local speaker = peripheral.find("speaker")
 local decoder = dfpwm.make_decoder()
+
+--读取cookie
+local cookie = ""
+local cookieFile = fs.open("cookie.txt","r")
+if cookieFile then
+    cookie = cookieFile.readAll()
+    cookieFile.close()
+    print("cookie loaded")
+end
 -- end init
 
 
 function GetMusicUrl(music_id)
     local getMusic="/song/url?id="..music_id
 
-    local data = http.get(NeteastMusicApi..getMusic).readAll()
+    local headers = {}
+    if cookie ~= "" then
+        headers["Cookie"] = cookie
+    end
+    local data = http.get(NeteastMusicApi..getMusic, headers).readAll()
     local music_get = textutils.unserialiseJSON(data)
     local musicUrl=music_get["data"][1]["url"]
 
@@ -147,7 +160,11 @@ local playMusic = function ()
 
     elseif mode==2 then
         local listid="/playlist/detail?s=0&id="..id
-        local data = http.get(NeteastMusicApi..listid).readAll()
+        local headers = {}
+        if cookie ~= "" then
+            headers["Cookie"] = cookie
+        end
+        local data = http.get(NeteastMusicApi..listid, headers).readAll()
         local musicList = textutils.unserialiseJSON(data)
         local List=musicList["playlist"]["tracks"]
 
